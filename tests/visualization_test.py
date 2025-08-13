@@ -155,6 +155,26 @@ class VisualizationTest(absltest.TestCase):
 
     self.assertEqual(actual_html, expected_html)
 
+  @mock.patch.object(
+      visualization, "HTML", new=None
+  )  # Ensures visualize returns str
+  def test_visualize_includes_hotkeys_mapping(self):
+
+    doc = lx_data.AnnotatedDocument(
+        text="Sample text",
+        extractions=[
+            lx_data.Extraction(
+                extraction_class="MED",
+                extraction_text="Sample",
+                char_interval=lx_data.CharInterval(start_pos=0, end_pos=6),
+            )
+        ],
+    )
+
+    html_output = visualization.visualize(doc, class_hotkeys={"m": "MED"})
+
+    self.assertIn('const classHotkeys = {"m": "MED"}', html_output)
+
 
 if __name__ == "__main__":
   absltest.main()

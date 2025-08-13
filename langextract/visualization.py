@@ -409,6 +409,7 @@ def _prepare_extraction_data(
         'extractionText': html.escape(extraction_text),
         'afterText': html.escape(after_text),
         'attributesHtml': attributes_html,
+        'attributes': extraction.attributes or {},
     })
 
   return extraction_data
@@ -420,8 +421,22 @@ def _build_visualization_html(
     color_map: dict[str, str],
     animation_speed: float = 1.0,
     show_legend: bool = True,
+    class_hotkeys: dict[str, str] | None = None,
 ) -> str:
-  """Builds the complete visualization HTML."""
+  """Builds the complete visualization HTML.
+
+  Args:
+    text: Original document text.
+    extractions: List of extractions to display.
+    color_map: Mapping of extraction classes to colours.
+    animation_speed: Delay between automatic progression of extractions.
+    show_legend: Whether to include a legend for class colours.
+    class_hotkeys: Optional mapping of keys to extraction classes for quick
+      reassignment in the interactive view.
+
+  Returns:
+    A string containing the visualization HTML and JavaScript.
+  """
   if not extractions:
     return (
         '<div class="lx-animated-wrapper"><p>No extractions to'
@@ -447,6 +462,9 @@ def _build_visualization_html(
   legend_html = _build_legend_html(color_map) if show_legend else ''
 
   js_data = json.dumps(extraction_data)
+  js_color_map = json.dumps(color_map)
+  js_hotkeys = json.dumps(class_hotkeys or {})
+  js_text = json.dumps(text)
 
   # Prepare pos_info_str safely for pytype for the f-string below
   first_extraction = extractions[0]
@@ -486,31 +504,106 @@ def _build_visualization_html(
 
     <script>
       (function() {{
+        const originalText = {js_text};
         const extractions = {js_data};
+        const colorMap = {js_color_map};
+        const classHotkeys = {js_hotkeys};
         let currentIndex = 0;
         let isPlaying = false;
         let animationInterval = null;
         let animationSpeed = {animation_speed};
 
+        function escapeHtml(str) {{
+          return str.replace(/[&<>"']/g, function(m) {{
+            return {{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[m];
+          }});
+        }}
+
+        function buildAttributesHtml(extraction) {{
+          let html = '<div><strong>class:</strong> ' + escapeHtml(extraction.class) + '</div>';
+          html += '<div><strong>attributes:</strong> ';
+          const attrs = extraction.attributes || {{}};
+          const parts = [];
+          for (const [key, value] of Object.entries(attrs)) {{
+            if (value === null || value === '' || value === 'null') continue;
+            parts.push('<span class="lx-attr-key">' + escapeHtml(String(key)) + '</span>: '
+                + '<span class="lx-attr-value">' + escapeHtml(String(value)) + '</span>');
+          }}
+          html += parts.length ? '{{' + parts.join(', ') + '}}' : '{{}}';
+          html += '</div>';
+          return html;
+        }}
+
+        function renderHighlights(highlightIndex) {{
+          let points = [];
+          const spanLengths = {{}};
+          extractions.forEach((ext, i) => {{
+            if (ext.startPos == null || ext.endPos == null || ext.startPos >= ext.endPos) return;
+            points.push({{position: ext.startPos, type: 'start', spanIdx: i}});
+            points.push({{position: ext.endPos, type: 'end', spanIdx: i}});
+            spanLengths[i] = ext.endPos - ext.startPos;
+          }});
+          points.sort((a, b) => {{
+            if (a.position !== b.position) return a.position - b.position;
+            if (a.type === 'end' && b.type === 'start') return -1;
+            if (a.type === 'start' && b.type === 'end') return 1;
+            if (a.type === 'end' && b.type === 'end') return spanLengths[a.spanIdx] - spanLengths[b.spanIdx];
+            if (a.type === 'start' && b.type === 'start') return spanLengths[b.spanIdx] - spanLengths[a.spanIdx];
+            return 0;
+          }});
+          let html = '';
+          let cursor = 0;
+          points.forEach(p => {{
+            if (p.position > cursor) {{
+              html += escapeHtml(originalText.slice(cursor, p.position));
+            }}
+            if (p.type === 'start') {{
+              const colour = extractions[p.spanIdx].color || '#ffff8d';
+              const hClass = p.spanIdx === highlightIndex ? ' lx-current-highlight' : '';
+              html += '<span class="lx-highlight' + hClass + '" data-idx="' + p.spanIdx + '" style="background-color:' + colour + ';">';
+            }} else {{
+              html += '</span>';
+            }}
+            cursor = p.position;
+          }});
+          if (cursor < originalText.length) {{
+            html += escapeHtml(originalText.slice(cursor));
+          }}
+          document.getElementById('textWindow').innerHTML = html;
+        }}
+
+        function getSelectionOffsets(root) {{
+          const sel = window.getSelection();
+          if (!sel || sel.rangeCount === 0) return null;
+          const range = sel.getRangeAt(0);
+          if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+          let start = 0, end = 0, traversed = 0;
+          function traverse(node) {{
+            if (node === range.startContainer) start = traversed + range.startOffset;
+            if (node === range.endContainer) end = traversed + range.endOffset;
+            if (node.nodeType === Node.TEXT_NODE) {{
+              traversed += node.textContent.length;
+            }} else {{
+              for (const child of node.childNodes) traverse(child);
+            }}
+          }}
+          traverse(root);
+          if (start > end) [start, end] = [end, start];
+          return {{start, end}};
+        }}
+
         function updateDisplay() {{
+          renderHighlights(currentIndex);
           const extraction = extractions[currentIndex];
           if (!extraction) return;
 
-          document.getElementById('attributesContainer').innerHTML = extraction.attributesHtml;
+          document.getElementById('attributesContainer').innerHTML = buildAttributesHtml(extraction);
           document.getElementById('entityInfo').textContent = (currentIndex + 1) + '/' + extractions.length;
           document.getElementById('posInfo').textContent = '[' + extraction.startPos + '-' + extraction.endPos + ']';
           document.getElementById('progressSlider').value = currentIndex;
 
           const playBtn = document.querySelector('.lx-control-btn');
           if (playBtn) playBtn.textContent = isPlaying ? '⏸ Pause' : '▶️ Play';
-
-          const prevHighlight = document.querySelector('.lx-text-window .lx-current-highlight');
-          if (prevHighlight) prevHighlight.classList.remove('lx-current-highlight');
-          const currentSpan = document.querySelector('.lx-text-window span[data-idx="' + currentIndex + '"]');
-          if (currentSpan) {{
-            currentSpan.classList.add('lx-current-highlight');
-            currentSpan.scrollIntoView({{block: 'center', behavior: 'smooth'}});
-          }}
         }}
 
         function nextExtraction() {{
@@ -539,6 +632,30 @@ def _build_visualization_html(
           updateDisplay();
         }}
 
+        document.getElementById('textWindow').addEventListener('mouseup', () => {{
+          const offsets = getSelectionOffsets(document.getElementById('textWindow'));
+          if (!offsets || offsets.start === offsets.end) return;
+          const extraction = extractions[currentIndex];
+          extraction.startPos = offsets.start;
+          extraction.endPos = offsets.end;
+          extraction.text = originalText.slice(offsets.start, offsets.end);
+          updateDisplay();
+          window.getSelection().removeAllRanges();
+        }});
+
+        document.addEventListener('keydown', (e) => {{
+          if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+          const key = e.key.toLowerCase();
+          if (classHotkeys[key]) {{
+            e.preventDefault();
+            const newClass = classHotkeys[key];
+            const extraction = extractions[currentIndex];
+            extraction.class = newClass;
+            extraction.color = colorMap[newClass] || extraction.color;
+            updateDisplay();
+          }}
+        }});
+
         window.playPause = playPause;
         window.nextExtraction = nextExtraction;
         window.prevExtraction = prevExtraction;
@@ -557,6 +674,7 @@ def visualize(
     animation_speed: float = 1.0,
     show_legend: bool = True,
     gif_optimized: bool = True,
+    class_hotkeys: dict[str, str] | None = None,
 ) -> HTML | str:
   """Visualises extraction data as animated highlighted HTML.
 
@@ -567,6 +685,9 @@ def visualize(
       to colours.
     gif_optimized: If ``True``, applies GIF-optimized styling with larger fonts,
       better contrast, and improved dimensions for video capture.
+    class_hotkeys: Optional mapping of single-character keys to extraction
+      class names. When provided, pressing the corresponding key will assign
+      the current extraction to that class.
 
   Returns:
     An :class:`IPython.display.HTML` object if IPython is available, otherwise
@@ -613,6 +734,7 @@ def visualize(
       color_map,
       animation_speed,
       show_legend,
+      class_hotkeys,
   )
 
   full_html = _VISUALIZATION_CSS + visualization_html
