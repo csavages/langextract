@@ -19,13 +19,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "langextract"
-version = "1.0.6"
+version = "1.0.7"
 description = "LangExtract: A library for extracting structured data from language models"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 authors = [
-    {name = "Akshay Goel", email = "goelak@google.com"}
+    {name = "Cody Savage", email = "cody.savage.git@gmail.com"}
 ]
 dependencies = [
     "absl-py>=1.0.0",
@@ -46,10 +46,10 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/csavages/langextract"
-"Repository" = "https://github.com/csavages/langextract"
-"Documentation" = "https://github.com/csavages/langextract/blob/main/README.md"
-"Bug Tracker" = "https://github.com/csavages/langextract/issues"
+"Homepage" = "https://github.com/google/langextract"
+"Repository" = "https://github.com/google/langextract"
+"Documentation" = "https://github.com/google/langextract/blob/main/README.md"
+"Bug Tracker" = "https://github.com/google/langextract/issues"
 
 [project.optional-dependencies]
 openai = ["openai>=1.50.0"]
