@@ -14,7 +14,7 @@
 
 """Example custom provider plugin for LangExtract."""
 
-from langextract_provider_example.provider import CustomGeminiProvider
+from langextract_provider_example.provider import CustomLlamaCppProvider
 
-__all__ = ["CustomGeminiProvider"]
+__all__ = ["CustomLlamaCppProvider"]
 __version__ = "0.1.0"

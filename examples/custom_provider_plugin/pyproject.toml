@@ -26,12 +26,12 @@ license = {text = "Apache-2.0"}
 dependencies = [
     # Uncomment when creating a standalone plugin package:
     # "langextract",  # Will install latest version
-    "google-genai>=0.2.0",  # Replace with your backend's SDK
+    "openai",  # Replace with your backend's SDK
 ]
 
 # Register the provider with LangExtract's plugin system
 [project.entry-points."langextract.providers"]
-custom_gemini = "langextract_provider_example:CustomGeminiProvider"
+custom_llama_cpp = "langextract_provider_example:CustomLlamaCppProvider"
 
 [tool.setuptools.packages.find]
 where = ["."]
