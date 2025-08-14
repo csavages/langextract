@@ -33,7 +33,8 @@ class CustomProviderSchema(lx.schema.BaseSchema):
   3. Optimize for their specific model capabilities
 
   This example generates a JSON schema from the examples and passes it to
-  the Gemini backend (which this example provider wraps) for structured output.
+  the llama.cpp backend (which this example provider wraps) for structured
+  output.
   """
 
   def __init__(self, schema_dict: dict[str, Any], strict_mode: bool = True):

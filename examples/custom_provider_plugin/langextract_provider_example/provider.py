@@ -25,61 +25,70 @@ import langextract as lx
 
 
 @lx.providers.registry.register(
-    r'^gemini',  # Matches Gemini model IDs (same as default provider)
+    r'^llama',  # Matches llama.cpp model IDs
 )
 @dataclasses.dataclass(init=False)
-class CustomGeminiProvider(lx.inference.BaseLanguageModel):
+class CustomLlamaCppProvider(lx.inference.BaseLanguageModel):
   """Example custom LangExtract provider implementation.
 
   This demonstrates how to create a custom provider for LangExtract
-  that can intercept and handle model requests. This example wraps
-  the actual Gemini API to show how custom schemas integrate, but you
-  would replace the Gemini calls with your own API or model implementation.
+  that wraps a llama.cpp server exposing the OpenAI-compatible API.
 
-  Note: Since this registers the same pattern as the default Gemini provider,
-  you must explicitly specify this provider when creating a model:
+  Note: Since this registers a generic llama pattern, you must explicitly
+  specify this provider when creating a model:
 
   config = lx.factory.ModelConfig(
-      model_id="gemini-2.5-flash",
-      provider="CustomGeminiProvider"
+      model_id="llama",
+      provider="CustomLlamaCppProvider",
   )
   model = lx.factory.create_model(config)
   """
 
   model_id: str
   api_key: str | None
+  api_base: str
+  system_prompt: str
   temperature: float
+  max_tokens: int
   response_schema: dict[str, Any] | None = None
   enable_structured_output: bool = False
   _client: Any = dataclasses.field(repr=False, compare=False)
 
   def __init__(
       self,
-      model_id: str = 'gemini-2.5-flash',
-      api_key: str | None = None,
-      temperature: float = 0.0,
+      model_id: str | None = None,
+      api_key: str | None = 'EMPTY',
+      api_base: str = 'http://127.0.0.1:8080',
+      system_prompt: str = '',
+      temperature: float = 0.6,
+      max_tokens: int = 32768,
       **kwargs: Any,
   ) -> None:
     """Initialize the custom provider.
 
     Args:
-      model_id: The model ID.
-      api_key: API key for the service.
+      model_id: The model ID. If None, uses the first model from the server.
+      api_key: API key for the service ("EMPTY" by default).
+      api_base: Base URL for the OpenAI-compatible API.
+      system_prompt: Optional system prompt prepended to requests.
       temperature: Sampling temperature.
+      max_tokens: Maximum tokens to generate.
       **kwargs: Additional parameters.
     """
     # TODO: Replace with your own client initialization
     try:
-      from google import genai  # pylint: disable=import-outside-toplevel
+      from openai import OpenAI  # pylint: disable=import-outside-toplevel
     except ImportError as e:
       raise lx.exceptions.InferenceConfigError(
-          'This example requires google-genai package. '
-          'Install with: pip install google-genai'
+          'This example requires the openai package. '
+          'Install with: pip install openai'
       ) from e
 
-    self.model_id = model_id
     self.api_key = api_key
+    self.api_base = api_base
+    self.system_prompt = system_prompt
     self.temperature = temperature
+    self.max_tokens = max_tokens
 
     # Schema kwargs from CustomProviderSchema.to_provider_config()
     self.response_schema = kwargs.get('response_schema')
@@ -90,12 +99,17 @@ class CustomGeminiProvider(lx.inference.BaseLanguageModel):
     # Store any additional kwargs for potential use
     self._extra_kwargs = kwargs
 
-    if not self.api_key:
-      raise lx.exceptions.InferenceConfigError(
-          'API key required. Set GEMINI_API_KEY or pass api_key parameter.'
-      )
+    self._client = OpenAI(api_key=self.api_key, base_url=self.api_base)
 
-    self._client = genai.Client(api_key=self.api_key)
+    if model_id is None:
+      models = self._client.models.list()
+      if not models.data:
+        raise lx.exceptions.InferenceConfigError(
+            'No models available from server'
+        )
+      self.model_id = models.data[0].id
+    else:
+      self.model_id = model_id
 
     super().__init__()
 
@@ -125,27 +139,37 @@ class CustomGeminiProvider(lx.inference.BaseLanguageModel):
     """
     config = {
         'temperature': kwargs.get('temperature', self.temperature),
+        'max_tokens': kwargs.get('max_output_tokens', self.max_tokens),
     }
 
     # Add other parameters if provided
-    for key in ['max_output_tokens', 'top_p', 'top_k']:
+    for key in ['top_p']:
       if key in kwargs:
         config[key] = kwargs[key]
 
-    # Apply schema constraints if configured
+    # Apply schema constraints if configured (requires Responses API support)
     if self.response_schema and self.enable_structured_output:
-      # For Gemini, this ensures the model outputs JSON matching our schema
-      # Adapt this section based on your actual provider's API requirements
-      config['response_schema'] = self.response_schema
-      config['response_mime_type'] = 'application/json'
+      config['response_format'] = {
+          'type': 'json_schema',
+          'json_schema': {
+              'name': 'schema',
+              'schema': self.response_schema,
+          },
+      }
 
     for prompt in batch_prompts:
       try:
-        # TODO: Replace this with your own API/model calls
-        response = self._client.models.generate_content(
-            model=self.model_id, contents=prompt, config=config
+        messages = []
+        if self.system_prompt:
+          messages.append({'role': 'system', 'content': self.system_prompt})
+        messages.append({'role': 'user', 'content': prompt})
+
+        response = self._client.chat.completions.create(
+            model=self.model_id,
+            messages=messages,
+            **config,
         )
-        output = response.text.strip()
+        output = response.choices[0].message.content.strip()
         yield [lx.inference.ScoredOutput(score=1.0, output=output)]
 
       except Exception as e:
