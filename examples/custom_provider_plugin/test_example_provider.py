@@ -20,19 +20,23 @@ import os
 # Import the provider to trigger registration with LangExtract
 # Note: This manual import is only needed when running without installation.
 # After `pip install -e .`, the entry point system handles this automatically.
-from langextract_provider_example import CustomLlamaCppProvider  # noqa: F401
+from langextract_provider_example import CustomGeminiProvider  # noqa: F401
 
 import langextract as lx
 
 
 def main():
   """Test the custom provider."""
-  api_base = os.getenv("LLAMACPP_API_BASE", "http://127.0.0.1:8080")
+  api_key = os.getenv("GEMINI_API_KEY") or os.getenv("LANGEXTRACT_API_KEY")
+
+  if not api_key:
+    print("Set GEMINI_API_KEY or LANGEXTRACT_API_KEY to test")
+    return
 
   config = lx.factory.ModelConfig(
-      model_id="llama",
-      provider="CustomLlamaCppProvider",
-      provider_kwargs={"api_base": api_base},
+      model_id="gemini-2.5-flash",
+      provider="CustomGeminiProvider",
+      provider_kwargs={"api_key": api_key},
   )
   model = lx.factory.create_model(config)
 
