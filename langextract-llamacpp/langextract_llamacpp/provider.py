@@ -8,11 +8,11 @@ from openai import OpenAI
 import langextract as lx
 
 
-@lx.providers.registry.register(r"^(llama|qwen|.*gguf$)", priority=10)
+@lx.providers.registry.register(r"^(qwen|.*gguf$)", priority=10)
 class LlamaCppLanguageModel(lx.inference.BaseLanguageModel):
   """LangExtract provider for LlamaCpp.
 
-  This provider handles model IDs matching: ['^(llama|qwen|.*gguf$)']
+  This provider handles model IDs matching: ['^(qwen|.*gguf$)']
   """
 
   def __init__(
