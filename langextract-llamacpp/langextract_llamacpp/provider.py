@@ -38,6 +38,7 @@ class LlamaCppLanguageModel(lx.inference.BaseLanguageModel):
     )
     self.response_schema = kwargs.get("response_schema")
     self.structured_output = kwargs.get("structured_output", False)
+    self.response_format = kwargs.get("response_format")
 
     self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
     self._extra_kwargs = kwargs
@@ -56,9 +57,20 @@ class LlamaCppLanguageModel(lx.inference.BaseLanguageModel):
       config = schema_instance.to_provider_config()
       self.response_schema = config.get("response_schema")
       self.structured_output = config.get("structured_output", False)
+      if self.structured_output and self.response_schema:
+        self.response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "langextract_schema",
+                "schema": self.response_schema,
+            },
+        }
+      else:
+        self.response_format = None
     else:
       self.response_schema = None
       self.structured_output = False
+      self.response_format = None
 
   def infer(self, batch_prompts, **kwargs):
     """Run inference on a batch of prompts.
@@ -75,7 +87,9 @@ class LlamaCppLanguageModel(lx.inference.BaseLanguageModel):
           "model": self.model_id,
           "messages": [{"role": "user", "content": prompt}],
       }
-      if self.response_schema:
+      if self.response_format:
+        api_params["response_format"] = self.response_format
+      elif self.response_schema:
         api_params["response_schema"] = self.response_schema
       api_params.update(kwargs)
       response = self.client.chat.completions.create(**api_params)
